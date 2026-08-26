@@ -1,6 +1,5 @@
 """C ABI for Prophet's additive-model numeric kernels."""
 
-from std.algorithm import parallelize
 from std.math import cos, exp, sin, sqrt
 from std.sys import simd_width_of
 
@@ -285,7 +284,8 @@ def mop_ridge_fit_parallel(
         var last = n * (chunk + 1) // chunks
         ridge_accumulate(x, y, local_coef, local_work, first, last, d)
 
-    parallelize[accumulate_chunk](chunks, chunks)
+    for chunk in range(chunks):
+        accumulate_chunk(chunk)
 
     for i in range(d * d):
         work[i] = 0.0
@@ -324,7 +324,8 @@ def mop_matvec(
             dst[r] = dot(x + r * d, coef, d)
 
     if n * d >= PARALLEL_MATVEC_MIN_VALUES:
-        parallelize[evaluate_chunk](MATVEC_CHUNKS, MATVEC_CHUNKS)
+        for chunk in range(MATVEC_CHUNKS):
+            evaluate_chunk(chunk)
     else:
         for r in range(n):
             dst[r] = dot(x + r * d, coef, d)
