@@ -100,10 +100,10 @@ reference is NumPy 2.5.1 using the same prebuilt row-major design matrix.
 
 | case | mojo-prophet | reference | ratio |
 |---|---:|---:|---:|
-| Fourier series (250k, order 10) | 107.80 ms | 196.60 ms | 1.82x faster |
-| Piecewise linear (300k, 25 cp) | 8.96 ms | 147.25 ms | 16.43x faster |
-| Piecewise logistic (300k, 25 cp) | 17.56 ms | 43.80 ms | 2.49x faster |
-| Ridge solve+predict (100k, 55 cols) | 36.93 ms | 65.38 ms | 1.77x faster |
+| Fourier series (250k, order 10) | 100.09 ms | 211.86 ms | 2.12x faster |
+| Piecewise linear (300k, 25 cp) | 9.52 ms | 112.58 ms | 11.82x faster |
+| Piecewise logistic (300k, 25 cp) | 17.83 ms | 45.30 ms | 2.54x faster |
+| Ridge solve+predict (100k, 55 cols) | 26.33 ms | 47.14 ms | 1.79x faster |
 
 Large ridge fits split the rows into CPU chunks, form thread-private Gram
 matrices without atomics, and reduce those matrices before Cholesky
@@ -111,7 +111,10 @@ factorization. Smaller fits remain serial to avoid thread-launch overhead. The
 trend kernels avoid Prophet's large temporary arrays and are substantially
 faster on this workload.
 
-No GPU path is shipped.
+No GPU path is shipped. Ridge accumulation was the only plausible candidate,
+but a guarded prototype measured 46.11 ms on the benchmark above versus
+24.49 ms for the parallel CPU path in the same locked run. Transfer overhead
+and row-major Gram-matrix access outweighed the available GPU arithmetic.
 
 ## How it works
 

@@ -1,9 +1,10 @@
 """C ABI for Prophet's additive-model numeric kernels."""
 
+from max.algorithm import parallelize
 from std.math import cos, exp, sin, sqrt
-from std.sys import simd_width_of
+from std.sys.info import simd_width_of as simdwidthof
 
-comptime W = simd_width_of[DType.float64]()
+comptime W = simdwidthof[DType.float64]()
 comptime PARALLEL_MATVEC_MIN_VALUES = 1_000_000
 comptime MATVEC_CHUNKS = 32
 comptime Ptr = UnsafePointer[Float64, AnyOrigin[mut=True]]
@@ -273,7 +274,8 @@ def mop_ridge_fit_parallel(
     var scratch = p(scratch_addr)
     var scratch_coefs = scratch + chunks * d * d
 
-    def accumulate_chunk(chunk: Int) capturing:
+    @parameter
+    def accumulate_chunk(chunk: Int):
         var local_work = scratch + chunk * d * d
         var local_coef = scratch_coefs + chunk * d
         for i in range(d * d):
@@ -284,8 +286,7 @@ def mop_ridge_fit_parallel(
         var last = n * (chunk + 1) // chunks
         ridge_accumulate(x, y, local_coef, local_work, first, last, d)
 
-    for chunk in range(chunks):
-        accumulate_chunk(chunk)
+    parallelize[accumulate_chunk](chunks, chunks)
 
     for i in range(d * d):
         work[i] = 0.0
@@ -317,15 +318,15 @@ def mop_matvec(
     var coef = p(coef_addr)
     var dst = p(dst_addr)
 
-    def evaluate_chunk(chunk: Int) capturing:
+    @parameter
+    def evaluate_chunk(chunk: Int):
         var first = n * chunk // MATVEC_CHUNKS
         var last = n * (chunk + 1) // MATVEC_CHUNKS
         for r in range(first, last):
             dst[r] = dot(x + r * d, coef, d)
 
     if n * d >= PARALLEL_MATVEC_MIN_VALUES:
-        for chunk in range(MATVEC_CHUNKS):
-            evaluate_chunk(chunk)
+        parallelize[evaluate_chunk](MATVEC_CHUNKS, MATVEC_CHUNKS)
     else:
         for r in range(n):
             dst[r] = dot(x + r * d, coef, d)
