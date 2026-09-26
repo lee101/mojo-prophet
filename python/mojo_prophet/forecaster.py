@@ -14,12 +14,12 @@ import pandas as pd
 
 from ._lib import addr, f64, lib
 
-_PARALLEL_RIDGE_MIN_UPDATES = 2_000_000
+_RIDGE_CHUNK_MIN_UPDATES = 2_000_000
 _RIDGE_CHUNKS = min(32, os.cpu_count() or 1)
 
 
 def _ridge_chunks(n: int, d: int) -> int:
-    if n * d * (d + 1) // 2 < _PARALLEL_RIDGE_MIN_UPDATES:
+    if n * d * (d + 1) // 2 < _RIDGE_CHUNK_MIN_UPDATES:
         return 0
     return min(_RIDGE_CHUNKS, n)
 

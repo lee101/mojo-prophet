@@ -105,15 +105,17 @@ reference is NumPy 2.5.1 using the same prebuilt row-major design matrix.
 | Piecewise logistic (300k, 25 cp) | 17.83 ms | 45.30 ms | 2.54x faster |
 | Ridge solve+predict (100k, 55 cols) | 26.33 ms | 47.14 ms | 1.79x faster |
 
-Large ridge fits split the rows into CPU chunks, form thread-private Gram
-matrices without atomics, and reduce those matrices before Cholesky
-factorization. Smaller fits remain serial to avoid thread-launch overhead. The
-trend kernels avoid Prophet's large temporary arrays and are substantially
-faster on this workload.
+Large ridge fits split the rows into contiguous CPU chunks, form per-chunk Gram
+matrices in disjoint scratch regions, and reduce those matrices before Cholesky
+factorization. The chunk loop runs serially on the calling thread: accumulation
+does n*d(d+1)/2 flops against 8*n*d bytes of streamed design matrix, an
+intensity of d/16 flops per byte that only reaches two at thirty-two columns.
+Smaller fits skip the chunking entirely. The trend kernels avoid Prophet's
+large temporary arrays and are substantially faster on this workload.
 
 No GPU path is shipped. Ridge accumulation was the only plausible candidate,
 but a guarded prototype measured 46.11 ms on the benchmark above versus
-24.49 ms for the parallel CPU path in the same locked run. Transfer overhead
+24.49 ms for the CPU path in the same locked run. Transfer overhead
 and row-major Gram-matrix access outweighed the available GPU arithmetic.
 
 ## How it works
@@ -128,7 +130,7 @@ Feature and design matrices are row-major. Fourier pairs are stored
 use hinge columns `max(0, t - changepoint)`. Fitting forms `X.T @ X` and
 `X.T @ y` in SIMD row chunks for large inputs, adds per-column prior penalties,
 solves the symmetric system with an in-place Cholesky factorization, and
-evaluates large forecasts with a parallel SIMD matrix-vector kernel. SIMD loops
+evaluates large forecasts with a chunked SIMD matrix-vector kernel. SIMD loops
 use the target's native width and scalar tails, so dimensions need not be
 multiples of the vector width.
 

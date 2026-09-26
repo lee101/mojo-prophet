@@ -1,11 +1,10 @@
 """C ABI for Prophet's additive-model numeric kernels."""
 
-from max.algorithm import parallelize
 from std.math import cos, exp, sin, sqrt
 from std.sys.info import simd_width_of as simdwidthof
 
 comptime W = simdwidthof[DType.float64]()
-comptime PARALLEL_MATVEC_MIN_VALUES = 1_000_000
+comptime MATVEC_CHUNK_MIN_VALUES = 1_000_000
 comptime MATVEC_CHUNKS = 32
 comptime Ptr = UnsafePointer[Float64, AnyOrigin[mut=True]]
 
@@ -93,6 +92,27 @@ def ridge_finish(penalty: Ptr, coef: Ptr, work: Ptr, d: Int) -> Int:
         return 0
     cholesky_solve(work, coef, d)
     return 1
+
+
+def ridge_accumulate_chunk(
+    x: Ptr,
+    y: Ptr,
+    scratch: Ptr,
+    scratch_coefs: Ptr,
+    n: Int,
+    d: Int,
+    chunk: Int,
+    chunks: Int,
+):
+    var local_work = scratch + chunk * d * d
+    var local_coef = scratch_coefs + chunk * d
+    for i in range(d * d):
+        local_work[i] = 0.0
+    for i in range(d):
+        local_coef[i] = 0.0
+    var first = n * chunk // chunks
+    var last = n * (chunk + 1) // chunks
+    ridge_accumulate(x, y, local_coef, local_work, first, last, d)
 
 
 @export("mop_fourier_series")
@@ -274,19 +294,8 @@ def mop_ridge_fit_parallel(
     var scratch = p(scratch_addr)
     var scratch_coefs = scratch + chunks * d * d
 
-    @parameter
-    def accumulate_chunk(chunk: Int):
-        var local_work = scratch + chunk * d * d
-        var local_coef = scratch_coefs + chunk * d
-        for i in range(d * d):
-            local_work[i] = 0.0
-        for i in range(d):
-            local_coef[i] = 0.0
-        var first = n * chunk // chunks
-        var last = n * (chunk + 1) // chunks
-        ridge_accumulate(x, y, local_coef, local_work, first, last, d)
-
-    parallelize[accumulate_chunk](chunks, chunks)
+    for chunk in range(chunks):
+        ridge_accumulate_chunk(x, y, scratch, scratch_coefs, n, d, chunk, chunks)
 
     for i in range(d * d):
         work[i] = 0.0
@@ -318,15 +327,12 @@ def mop_matvec(
     var coef = p(coef_addr)
     var dst = p(dst_addr)
 
-    @parameter
-    def evaluate_chunk(chunk: Int):
-        var first = n * chunk // MATVEC_CHUNKS
-        var last = n * (chunk + 1) // MATVEC_CHUNKS
-        for r in range(first, last):
-            dst[r] = dot(x + r * d, coef, d)
-
-    if n * d >= PARALLEL_MATVEC_MIN_VALUES:
-        parallelize[evaluate_chunk](MATVEC_CHUNKS, MATVEC_CHUNKS)
+    if n * d >= MATVEC_CHUNK_MIN_VALUES:
+        for chunk in range(MATVEC_CHUNKS):
+            var first = n * chunk // MATVEC_CHUNKS
+            var last = n * (chunk + 1) // MATVEC_CHUNKS
+            for r in range(first, last):
+                dst[r] = dot(x + r * d, coef, d)
     else:
         for r in range(n):
             dst[r] = dot(x + r * d, coef, d)
