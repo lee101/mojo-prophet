@@ -17,7 +17,7 @@ def dot(a: Ptr, b: Ptr, n: Int) -> Float64:
     var acc = SIMD[DType.float64, W](0.0)
     var i = 0
     while i + W <= n:
-        acc += a.load[width=W](i) * b.load[width=W](i)
+        acc += a.unsafe_load[width=W](i) * b.unsafe_load[width=W](i)
         i += W
     var total = acc.reduce_add()
     while i < n:
@@ -30,7 +30,7 @@ def axpy(alpha: Float64, x: Ptr, y: Ptr, n: Int):
     var va = SIMD[DType.float64, W](alpha)
     var i = 0
     while i + W <= n:
-        y.store(i, y.load[width=W](i) + va * x.load[width=W](i))
+        y.store(i, y.unsafe_load[width=W](i) + va * x.unsafe_load[width=W](i))
         i += W
     while i < n:
         y[i] += alpha * x[i]
